@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tongue Twister Pace Trainer</title>
+
+  <!-- Google Font: Space Grotesk -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- Babel Standalone (compiles JSX in the browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback, useMemo } = React;
+
+    const DEFAULT_TEXT =
+      "Peter Piper picked a peck of pickled peppers. If Peter Piper picked a peck of pickled peppers, where is the peck of pickled peppers Peter Piper picked?";
+
+    // Decreases by 2s until 6s, then the last step is 1s apart (5s, 4s).
+    const PRESETS = [
+      { label: "Easy", seconds: 12 },
+      { label: "Medium", seconds: 10 },
+      { label: "Hard", seconds: 8 },
+      { label: "Insane", seconds: 6 },
+      { label: "Extreme", seconds: 5 },
+      { label: "Impossible", seconds: 4 },
+    ];
+
+    const THEME = {
+      dark: {
+        page: "bg-[#100E1B] text-[#F3F0FA]",
+        card: "bg-[#181428] border border-[#2C2545]",
+        label: "text-[#C9C1E8]",
+        subtitle: "text-[#9C93BE]",
+        inputBg:
+          "bg-[#0F0C1C] border border-[#332B54] text-[#F3F0FA] placeholder-[#655C86] focus:ring-[#FFE14D]",
+        unspoken: "text-[#9A96AC]",
+        spoken: "text-white",
+        presetInactive:
+          "bg-transparent text-[#C9C1E8] border-[#332B54] hover:border-[#FF8A5B] hover:text-[#FF8A5B]",
+        presetActive: "bg-[#FF8A5B] text-[#1A1200] border-[#FF8A5B]",
+        secondaryBtn:
+          "bg-[#2C2545] text-[#F3F0FA] border border-[#3D3460] hover:border-[#FFE14D]",
+        ghostBtn:
+          "bg-transparent text-[#C9C1E8] border border-[#332B54] hover:border-[#FF8A5B] hover:text-[#FF8A5B]",
+        progressTrack: "bg-[#0F0C1C] border border-[#2C2545]",
+        statLabel: "text-[#8579AC]",
+        footer: "text-[#655C86]",
+        toggleTrack: "bg-[#2C2545] border border-[#3D3460]",
+        toggleThumb: "bg-[#FFE14D] text-[#1A1600]",
+        emptyState: "text-[#655C86]",
+      },
+      light: {
+        page: "bg-[#F4F2FA] text-[#1B1730]",
+        card: "bg-white border border-[#E2DCF2]",
+        label: "text-[#4B4468]",
+        subtitle: "text-[#6B6485]",
+        inputBg:
+          "bg-[#FAF9FE] border border-[#DDD5EF] text-[#1B1730] placeholder-[#A79FC4] focus:ring-[#E8B33D]",
+        unspoken: "text-[#A39CBB]",
+        spoken: "text-[#15111F]",
+        presetInactive:
+          "bg-transparent text-[#4B4468] border-[#DDD5EF] hover:border-[#E06A3C] hover:text-[#E06A3C]",
+        presetActive: "bg-[#E06A3C] text-white border-[#E06A3C]",
+        secondaryBtn:
+          "bg-[#EFEAF9] text-[#1B1730] border border-[#DDD5EF] hover:border-[#E8B33D]",
+        ghostBtn:
+          "bg-transparent text-[#4B4468] border border-[#DDD5EF] hover:border-[#E06A3C] hover:text-[#E06A3C]",
+        progressTrack: "bg-[#EFEAF9] border border-[#E2DCF2]",
+        statLabel: "text-[#8B84A6]",
+        footer: "text-[#8B84A6]",
+        toggleTrack: "bg-[#EFEAF9] border border-[#DDD5EF]",
+        toggleThumb: "bg-[#E8B33D] text-[#1B1200]",
+        emptyState: "text-[#A79FC4]",
+      },
+    };
+
+    function TongueTwisterPaceTrainer() {
+      const [text, setText] = useState(DEFAULT_TEXT);
+      const [totalSeconds, setTotalSeconds] = useState(8);
+      const [status, setStatus] = useState("idle"); // idle | running | paused | done
+      const [activeIndex, setActiveIndex] = useState(-1);
+      const [activePreset, setActivePreset] = useState("Hard");
+      const [mode, setMode] = useState("dark"); // dark | light
+
+      const t = THEME[mode];
+
+      // Timing refs — track elapsed time so pause/resume stays accurate.
+      const startTimeRef = useRef(0);
+      const elapsedBeforePauseRef = useRef(0);
+      const rafRef = useRef(null);
+
+      const words = useMemo(() => {
+        return text.trim().length ? text.trim().split(/\s+/) : [];
+      }, [text]);
+
+      const wordCount = words.length;
+      const msPerWord = wordCount > 0 ? (totalSeconds * 1000) / wordCount : 0;
+
+      const clearRaf = useCallback(() => {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+      }, []);
+
+      const tick = useCallback(() => {
+        const elapsed = elapsedBeforePauseRef.current + (performance.now() - startTimeRef.current);
+        const totalMs = totalSeconds * 1000;
+
+        if (elapsed >= totalMs || wordCount === 0) {
+          setActiveIndex(wordCount - 1);
+          setStatus("done");
+          clearRaf();
+          return;
+        }
+
+        const idx = Math.min(wordCount - 1, Math.floor(elapsed / msPerWord));
+        setActiveIndex(idx);
+        rafRef.current = requestAnimationFrame(tick);
+      }, [totalSeconds, wordCount, msPerWord, clearRaf]);
+
+      useEffect(() => clearRaf, [clearRaf]);
+
+      const handleStart = () => {
+        if (wordCount === 0) return;
+        elapsedBeforePauseRef.current = 0;
+        startTimeRef.current = performance.now();
+        setActiveIndex(0);
+        setStatus("running");
+        clearRaf();
+        rafRef.current = requestAnimationFrame(tick);
+      };
+
+      const handlePause = () => {
+        if (status !== "running") return;
+        elapsedBeforePauseRef.current += performance.now() - startTimeRef.current;
+        clearRaf();
+        setStatus("paused");
+      };
+
+      const handleResume = () => {
+        if (status !== "paused") return;
+        startTimeRef.current = performance.now();
+        setStatus("running");
+        rafRef.current = requestAnimationFrame(tick);
+      };
+
+      const handleReset = () => {
+        clearRaf();
+        elapsedBeforePauseRef.current = 0;
+        setActiveIndex(-1);
+        setStatus("idle");
+      };
+
+      const onTextChange = (e) => {
+        setText(e.target.value);
+        handleReset();
+      };
+
+      const onTimeChange = (e) => {
+        const val = e.target.value;
+        setTotalSeconds(val === "" ? "" : Number(val));
+        setActivePreset(null);
+        handleReset();
+      };
+
+      const applyPreset = (preset) => {
+        setTotalSeconds(preset.seconds);
+        setActivePreset(preset.label);
+        handleReset();
+      };
+
+      const safeTotal = typeof totalSeconds === "number" && totalSeconds > 0 ? totalSeconds : 0;
+      const progressCount = activeIndex < 0 ? 0 : activeIndex + 1;
+      const progressPct = wordCount > 0 ? (progressCount / wordCount) * 100 : 0;
+
+      const canStart = status === "idle" || status === "done";
+      const canPause = status === "running";
+      const canResume = status === "paused";
+
+      return (
+        <div className={`min-h-screen w-full flex flex-col items-center px-4 py-10 sm:py-14 transition-colors duration-300 ${t.page}`}>
+          <style>{`
+            @keyframes wordPulse {
+              0% { transform: scale(1); }
+              30% { transform: scale(1.08); }
+              100% { transform: scale(1); }
+            }
+            .word-active {
+              animation: wordPulse 220ms ease-out;
+            }
+            .mono-num {
+              font-variant-numeric: tabular-nums;
+            }
+          `}</style>
+
+          <div className="w-full max-w-3xl flex flex-col gap-8">
+            {/* Header */}
+            <header className="flex items-start justify-between gap-4">
+              <div className="text-center flex-1 space-y-1">
+                <h1
+                  className="text-3xl sm:text-4xl font-bold tracking-tight"
+                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Tongue Twister Pace Trainer
+                </h1>
+                <p className={`text-sm sm:text-base ${t.subtitle}`}>
+                  Set your target time, watch the words light up, keep pace.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMode(mode === "dark" ? "light" : "dark")}
+                aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                className={`shrink-0 mt-1 w-16 h-9 rounded-full relative transition-colors duration-300 ${t.toggleTrack}`}
+              >
+                <span
+                  className={`absolute top-1 h-7 w-7 rounded-full flex items-center justify-center text-xs transition-all duration-300 ${t.toggleThumb} ${
+                    mode === "dark" ? "left-1" : "left-8"
+                  }`}
+                >
+                  {mode === "dark" ? "🌙" : "☀️"}
+                </span>
+              </button>
+            </header>
+
+            {/* Input card */}
+            <section className={`rounded-2xl p-5 sm:p-6 space-y-5 transition-colors duration-300 ${t.card}`}>
+              <div className="flex flex-col gap-2">
+                <label htmlFor="twister-text" className={`text-sm font-medium ${t.label}`}>
+                  Tongue Twister
+                </label>
+                <textarea
+                  id="twister-text"
+                  value={text}
+                  onChange={onTextChange}
+                  rows={4}
+                  placeholder="Paste or type a tongue twister…"
+                  className={`w-full resize-y rounded-xl px-4 py-3 text-base leading-relaxed focus:outline-none focus:ring-2 transition ${t.inputBg}`}
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+                <div className="flex flex-col gap-2 w-full sm:w-52">
+                  <label htmlFor="total-time" className={`text-sm font-medium ${t.label}`}>
+                    Total Time (seconds)
+                  </label>
+                  <input
+                    id="total-time"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={totalSeconds}
+                    onChange={onTimeChange}
+                    className={`w-full rounded-xl px-4 py-3 text-base mono-num focus:outline-none focus:ring-2 transition ${t.inputBg}`}
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      className={`px-3.5 py-2 rounded-lg text-sm font-medium border transition ${
+                        activePreset === preset.label ? t.presetActive : t.presetInactive
+                      }`}
+                    >
+                      {preset.label}
+                      <span className="ml-1 text-xs opacity-80">{preset.seconds}s</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* Main display */}
+            <section className={`rounded-2xl p-6 sm:p-10 transition-colors duration-300 ${t.card}`}>
+              <div className="min-h-[9rem] flex items-center justify-center">
+                {wordCount === 0 ? (
+                  <p className={`text-lg ${t.emptyState}`}>Enter a tongue twister above to begin.</p>
+                ) : (
+                  <p className="text-center leading-relaxed text-2xl sm:text-4xl font-semibold tracking-tight">
+                    {words.map((word, i) => (
+                      <span
+                        key={i}
+                        className={`inline-block mx-1 my-1 px-1.5 py-0.5 rounded-md transition-colors duration-150 ${
+                          i === activeIndex
+                            ? "bg-[#FFE14D] text-[#1A1600] word-active"
+                            : i < activeIndex
+                            ? t.spoken
+                            : t.unspoken
+                        }`}
+                      >
+                        {word}
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </div>
+
+              {/* Progress bar */}
+              <div className="mt-8">
+                <div className={`h-2.5 w-full rounded-full overflow-hidden ${t.progressTrack}`}>
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#FF8A5B] to-[#FFE14D] transition-[width] duration-150 ease-linear"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleStart}
+                  disabled={!canStart || wordCount === 0}
+                  className="px-5 py-2.5 rounded-xl font-semibold bg-[#FFE14D] text-[#1A1600] disabled:opacity-35 disabled:cursor-not-allowed hover:brightness-105 active:scale-[0.97] transition"
+                >
+                  Start
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePause}
+                  disabled={!canPause}
+                  className={`px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition ${t.secondaryBtn}`}
+                >
+                  Pause
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResume}
+                  disabled={!canResume}
+                  className={`px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition ${t.secondaryBtn}`}
+                >
+                  Resume
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className={`px-5 py-2.5 rounded-xl font-semibold active:scale-[0.97] transition ${t.ghostBtn}`}
+                >
+                  Reset
+                </button>
+              </div>
+            </section>
+
+            {/* Stats */}
+            <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Stat label="Total Time" value={`${safeTotal.toFixed(1)}s`} t={t} />
+              <Stat label="Word Count" value={wordCount} t={t} />
+              <Stat label="Ms Per Word" value={wordCount > 0 ? `${msPerWord.toFixed(0)}ms` : "—"} t={t} />
+              <Stat
+                label="Progress"
+                value={wordCount > 0 ? `${progressCount} / ${wordCount}` : "0 / 0"}
+                t={t}
+              />
+            </section>
+
+            <footer className={`text-center text-xs pt-2 ${t.footer}`}>
+              Status:{" "}
+              <span className={`capitalize ${t.label}`}>
+                {status === "idle" ? "ready" : status}
+              </span>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    function Stat({ label, value, t }) {
+      return (
+        <div className={`rounded-xl px-4 py-3.5 flex flex-col gap-1 transition-colors duration-300 ${t.card}`}>
+          <span className={`text-[11px] tracking-wide ${t.statLabel}`}>{label}</span>
+          <span className={`mono-num text-lg font-semibold ${t.label}`}>{value}</span>
+        </div>
+      );
+    }
+
+    // Render into the HTML root
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<TongueTwisterPaceTrainer />);
+  </script>
+</body>
+</html>

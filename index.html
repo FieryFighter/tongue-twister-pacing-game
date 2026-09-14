@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tongue Twister Pace Trainer</title>
+  <title>Tongue Twister Pacing Game</title>
 
   <!-- Google Font: Space Grotesk -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,6 +19,47 @@
 
   <!-- Babel Standalone (compiles JSX in the browser) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* Theme variables — every colored element below reads from these,
+       so toggling the wrapper's theme-dark/theme-light class recolors
+       the entire UI in one place. */
+    .theme-dark {
+      --page-bg: #100E1B; --page-text: #F3F0FA;
+      --card-bg: #181428; --card-border: #2C2545;
+      --label: #C9C1E8; --subtitle: #9C93BE;
+      --input-bg: #0F0C1C; --input-border: #332B54; --placeholder: #655C86;
+      --word-default: #8A84A0; --word-active: #FFFFFF;
+      --preset-text: #C9C1E8; --preset-border: #332B54;
+      --accent-secondary: #FF8A5B; --preset-active-text: #1A1200;
+      --secondary-bg: #2C2545; --secondary-border: #3D3460;
+      --progress-track: #0F0C1C;
+      --stat-label: #8579AC; --footer: #655C86;
+      --toggle-track: #2C2545; --toggle-thumb: #FFE14D; --toggle-thumb-text: #1A1600;
+      --empty: #655C86; --ring: #FFE14D;
+    }
+    .theme-light {
+      --page-bg: #F4F2FA; --page-text: #1B1730;
+      --card-bg: #FFFFFF; --card-border: #E2DCF2;
+      --label: #4B4468; --subtitle: #6B6485;
+      --input-bg: #FAF9FE; --input-border: #DDD5EF; --placeholder: #A79FC4;
+      --word-default: #A29CB8; --word-active: #15111F;
+      --preset-text: #4B4468; --preset-border: #DDD5EF;
+      --accent-secondary: #E06A3C; --preset-active-text: #FFFFFF;
+      --secondary-bg: #EFEAF9; --secondary-border: #DDD5EF;
+      --progress-track: #EFEAF9;
+      --stat-label: #8B84A6; --footer: #8B84A6;
+      --toggle-track: #EFEAF9; --toggle-thumb: #E8B33D; --toggle-thumb-text: #1B1200;
+      --empty: #A79FC4; --ring: #E8B33D;
+    }
+    @keyframes wordPulse {
+      0% { transform: scale(1); }
+      35% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+    .word-active { animation: wordPulse 220ms ease-out; }
+    .mono-num { font-variant-numeric: tabular-nums; }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -29,64 +70,44 @@
     const DEFAULT_TEXT =
       "Peter Piper picked a peck of pickled peppers. If Peter Piper picked a peck of pickled peppers, where is the peck of pickled peppers Peter Piper picked?";
 
-    // Decreases by 2s until 6s, then the last step is 1s apart (5s, 4s).
-    const PRESETS = [
-      { label: "Easy", seconds: 12 },
-      { label: "Medium", seconds: 10 },
-      { label: "Hard", seconds: 8 },
-      { label: "Insane", seconds: 6 },
-      { label: "Extreme", seconds: 5 },
-      { label: "Impossible", seconds: 4 },
+    const PRESET_LABELS = ["Easy", "Medium", "Hard", "Insane", "Extreme", "Impossible"];
+
+    // Target pace per unit, in milliseconds, for each pacing mode.
+    // Total time for a preset = (unit count in the text) x (pace for that unit),
+    // so difficulty scales with the length of whatever twister is pasted in
+    // instead of staying a fixed number of seconds.
+    const PACE_TARGETS = {
+      even:     { Easy: 444, Medium: 370, Hard: 296, Insane: 222, Extreme: 185, Impossible: 148 }, // ms / word
+      char:     { Easy: 90,  Medium: 74,  Hard: 59,  Insane: 44,  Extreme: 37,  Impossible: 30  }, // ms / character
+      syllable: { Easy: 296, Medium: 247, Hard: 197, Insane: 148, Extreme: 123, Impossible: 99  }, // ms / syllable
+    };
+
+    const PACING_MODES = [
+      { id: "even", label: "Even" },
+      { id: "char", label: "By Character" },
+      { id: "syllable", label: "By Syllable" },
     ];
 
-    const THEME = {
-      dark: {
-        page: "bg-[#100E1B] text-[#F3F0FA]",
-        card: "bg-[#181428] border border-[#2C2545]",
-        label: "text-[#C9C1E8]",
-        subtitle: "text-[#9C93BE]",
-        inputBg:
-          "bg-[#0F0C1C] border border-[#332B54] text-[#F3F0FA] placeholder-[#655C86] focus:ring-[#FFE14D]",
-        unspoken: "text-[#9A96AC]",
-        spoken: "text-white",
-        presetInactive:
-          "bg-transparent text-[#C9C1E8] border-[#332B54] hover:border-[#FF8A5B] hover:text-[#FF8A5B]",
-        presetActive: "bg-[#FF8A5B] text-[#1A1200] border-[#FF8A5B]",
-        secondaryBtn:
-          "bg-[#2C2545] text-[#F3F0FA] border border-[#3D3460] hover:border-[#FFE14D]",
-        ghostBtn:
-          "bg-transparent text-[#C9C1E8] border border-[#332B54] hover:border-[#FF8A5B] hover:text-[#FF8A5B]",
-        progressTrack: "bg-[#0F0C1C] border border-[#2C2545]",
-        statLabel: "text-[#8579AC]",
-        footer: "text-[#655C86]",
-        toggleTrack: "bg-[#2C2545] border border-[#3D3460]",
-        toggleThumb: "bg-[#FFE14D] text-[#1A1600]",
-        emptyState: "text-[#655C86]",
-      },
-      light: {
-        page: "bg-[#F4F2FA] text-[#1B1730]",
-        card: "bg-white border border-[#E2DCF2]",
-        label: "text-[#4B4468]",
-        subtitle: "text-[#6B6485]",
-        inputBg:
-          "bg-[#FAF9FE] border border-[#DDD5EF] text-[#1B1730] placeholder-[#A79FC4] focus:ring-[#E8B33D]",
-        unspoken: "text-[#A39CBB]",
-        spoken: "text-[#15111F]",
-        presetInactive:
-          "bg-transparent text-[#4B4468] border-[#DDD5EF] hover:border-[#E06A3C] hover:text-[#E06A3C]",
-        presetActive: "bg-[#E06A3C] text-white border-[#E06A3C]",
-        secondaryBtn:
-          "bg-[#EFEAF9] text-[#1B1730] border border-[#DDD5EF] hover:border-[#E8B33D]",
-        ghostBtn:
-          "bg-transparent text-[#4B4468] border border-[#DDD5EF] hover:border-[#E06A3C] hover:text-[#E06A3C]",
-        progressTrack: "bg-[#EFEAF9] border border-[#E2DCF2]",
-        statLabel: "text-[#8B84A6]",
-        footer: "text-[#8B84A6]",
-        toggleTrack: "bg-[#EFEAF9] border border-[#DDD5EF]",
-        toggleThumb: "bg-[#E8B33D] text-[#1B1200]",
-        emptyState: "text-[#A79FC4]",
-      },
-    };
+    function lettersOnly(word) {
+      return word.replace(/[^a-zA-Z]/g, "");
+    }
+
+    function charWeight(word) {
+      const len = lettersOnly(word).length;
+      return len > 0 ? len : 1;
+    }
+
+    // Standard heuristic English syllable counter. Not dictionary-accurate,
+    // but a reasonable approximation for pacing purposes.
+    function countSyllables(word) {
+      const w = lettersOnly(word).toLowerCase();
+      if (!w) return 1;
+      if (w.length <= 3) return 1;
+      let s = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "");
+      s = s.replace(/^y/, "");
+      const matches = s.match(/[aeiouy]{1,2}/g);
+      return matches ? Math.max(1, matches.length) : 1;
+    }
 
     function TongueTwisterPaceTrainer() {
       const [text, setText] = useState(DEFAULT_TEXT);
@@ -94,11 +115,9 @@
       const [status, setStatus] = useState("idle"); // idle | running | paused | done
       const [activeIndex, setActiveIndex] = useState(-1);
       const [activePreset, setActivePreset] = useState("Hard");
+      const [pacingMode, setPacingMode] = useState("even"); // even | char | syllable
       const [mode, setMode] = useState("dark"); // dark | light
 
-      const t = THEME[mode];
-
-      // Timing refs — track elapsed time so pause/resume stays accurate.
       const startTimeRef = useRef(0);
       const elapsedBeforePauseRef = useRef(0);
       const rafRef = useRef(null);
@@ -107,8 +126,48 @@
         return text.trim().length ? text.trim().split(/\s+/) : [];
       }, [text]);
 
-      const wordCount = words.length;
-      const msPerWord = wordCount > 0 ? (totalSeconds * 1000) / wordCount : 0;
+      const wordMeta = useMemo(
+        () => words.map((w) => ({ text: w, chars: charWeight(w), syll: countSyllables(w) })),
+        [words]
+      );
+
+      const wordCount = wordMeta.length;
+      const totalChars = useMemo(() => wordMeta.reduce((a, w) => a + w.chars, 0), [wordMeta]);
+      const totalSyllables = useMemo(() => wordMeta.reduce((a, w) => a + w.syll, 0), [wordMeta]);
+
+      const unitCounts = useMemo(
+        () => ({ even: wordCount, char: totalChars, syllable: totalSyllables }),
+        [wordCount, totalChars, totalSyllables]
+      );
+
+      // Live seconds each preset would use for the current text + pacing mode.
+      const presetSecondsMap = useMemo(() => {
+        const map = {};
+        PRESET_LABELS.forEach((label) => {
+          const units = unitCounts[pacingMode] || 0;
+          const pace = PACE_TARGETS[pacingMode][label];
+          map[label] = units > 0 ? Number(((units * pace) / 1000).toFixed(1)) : 0;
+        });
+        return map;
+      }, [unitCounts, pacingMode]);
+
+      const safeTotal = typeof totalSeconds === "number" && totalSeconds > 0 ? totalSeconds : 0;
+
+      // Per-word durations for the current pacing mode, and the cumulative
+      // end-time boundary for each word within the total run.
+      const cumulativeBoundaries = useMemo(() => {
+        const totalMs = safeTotal * 1000;
+        if (wordCount === 0 || totalMs <= 0) return [];
+        const weights = wordMeta.map((w) =>
+          pacingMode === "even" ? 1 : pacingMode === "char" ? w.chars : w.syll
+        );
+        const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+        let acc = 0;
+        return weights.map((w) => {
+          acc += (totalMs * w) / totalWeight;
+          return acc;
+        });
+      }, [wordMeta, wordCount, pacingMode, safeTotal]);
 
       const clearRaf = useCallback(() => {
         if (rafRef.current) {
@@ -119,19 +178,20 @@
 
       const tick = useCallback(() => {
         const elapsed = elapsedBeforePauseRef.current + (performance.now() - startTimeRef.current);
-        const totalMs = totalSeconds * 1000;
+        const totalMs = safeTotal * 1000;
 
-        if (elapsed >= totalMs || wordCount === 0) {
+        if (elapsed >= totalMs || wordCount === 0 || cumulativeBoundaries.length === 0) {
           setActiveIndex(wordCount - 1);
           setStatus("done");
           clearRaf();
           return;
         }
 
-        const idx = Math.min(wordCount - 1, Math.floor(elapsed / msPerWord));
+        let idx = cumulativeBoundaries.findIndex((boundary) => elapsed < boundary);
+        if (idx === -1) idx = wordCount - 1;
         setActiveIndex(idx);
         rafRef.current = requestAnimationFrame(tick);
-      }, [totalSeconds, wordCount, msPerWord, clearRaf]);
+      }, [safeTotal, wordCount, cumulativeBoundaries, clearRaf]);
 
       useEffect(() => clearRaf, [clearRaf]);
 
@@ -178,13 +238,29 @@
         handleReset();
       };
 
-      const applyPreset = (preset) => {
-        setTotalSeconds(preset.seconds);
-        setActivePreset(preset.label);
+      const applyPreset = (label) => {
+        setActivePreset(label);
+        setTotalSeconds(presetSecondsMap[label]);
         handleReset();
       };
 
-      const safeTotal = typeof totalSeconds === "number" && totalSeconds > 0 ? totalSeconds : 0;
+      const changePacingMode = (id) => {
+        setPacingMode(id);
+        handleReset();
+      };
+
+      // Keep an active preset's seconds in sync with the text and pacing
+      // mode, so difficulty stays meaningful no matter what's pasted in.
+      useEffect(() => {
+        if (!activePreset) return;
+        const val = presetSecondsMap[activePreset];
+        if (typeof val === "number" && !Number.isNaN(val)) {
+          setTotalSeconds(val);
+          handleReset();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [pacingMode, presetSecondsMap]);
+
       const progressCount = activeIndex < 0 ? 0 : activeIndex + 1;
       const progressPct = wordCount > 0 ? (progressCount / wordCount) * 100 : 0;
 
@@ -192,22 +268,12 @@
       const canPause = status === "running";
       const canResume = status === "paused";
 
-      return (
-        <div className={`min-h-screen w-full flex flex-col items-center px-4 py-10 sm:py-14 transition-colors duration-300 ${t.page}`}>
-          <style>{`
-            @keyframes wordPulse {
-              0% { transform: scale(1); }
-              30% { transform: scale(1.08); }
-              100% { transform: scale(1); }
-            }
-            .word-active {
-              animation: wordPulse 220ms ease-out;
-            }
-            .mono-num {
-              font-variant-numeric: tabular-nums;
-            }
-          `}</style>
+      const unitLabel = pacingMode === "even" ? "Word" : pacingMode === "char" ? "Character" : "Syllable";
+      const avgMsPerUnit =
+        unitCounts[pacingMode] > 0 ? (safeTotal * 1000) / unitCounts[pacingMode] : 0;
 
+      return (
+        <div className={`theme-${mode} min-h-screen w-full flex flex-col items-center px-4 py-10 sm:py-14 transition-colors duration-300 bg-[var(--page-bg)] text-[var(--page-text)]`}>
           <div className="w-full max-w-3xl flex flex-col gap-8">
             {/* Header */}
             <header className="flex items-start justify-between gap-4">
@@ -216,9 +282,9 @@
                   className="text-3xl sm:text-4xl font-bold tracking-tight"
                   style={{ fontFamily: "'Space Grotesk', sans-serif" }}
                 >
-                  Tongue Twister Pace Trainer
+                  Tongue Twister Pacing Game
                 </h1>
-                <p className={`text-sm sm:text-base ${t.subtitle}`}>
+                <p className="text-sm sm:text-base text-[var(--subtitle)]">
                   Set your target time, watch the words light up, keep pace.
                 </p>
               </div>
@@ -227,10 +293,10 @@
                 type="button"
                 onClick={() => setMode(mode === "dark" ? "light" : "dark")}
                 aria-label={mode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                className={`shrink-0 mt-1 w-16 h-9 rounded-full relative transition-colors duration-300 ${t.toggleTrack}`}
+                className="shrink-0 mt-1 w-16 h-9 rounded-full relative transition-colors duration-300 bg-[var(--toggle-track)] border border-[var(--secondary-border)]"
               >
                 <span
-                  className={`absolute top-1 h-7 w-7 rounded-full flex items-center justify-center text-xs transition-all duration-300 ${t.toggleThumb} ${
+                  className={`absolute top-1 h-7 w-7 rounded-full flex items-center justify-center text-xs transition-all duration-300 bg-[var(--toggle-thumb)] text-[var(--toggle-thumb-text)] ${
                     mode === "dark" ? "left-1" : "left-8"
                   }`}
                 >
@@ -240,9 +306,9 @@
             </header>
 
             {/* Input card */}
-            <section className={`rounded-2xl p-5 sm:p-6 space-y-5 transition-colors duration-300 ${t.card}`}>
+            <section className="rounded-2xl p-5 sm:p-6 space-y-5 transition-colors duration-300 bg-[var(--card-bg)] border border-[var(--card-border)]">
               <div className="flex flex-col gap-2">
-                <label htmlFor="twister-text" className={`text-sm font-medium ${t.label}`}>
+                <label htmlFor="twister-text" className="text-sm font-medium text-[var(--label)]">
                   Tongue Twister
                 </label>
                 <textarea
@@ -251,13 +317,38 @@
                   onChange={onTextChange}
                   rows={4}
                   placeholder="Paste or type a tongue twister…"
-                  className={`w-full resize-y rounded-xl px-4 py-3 text-base leading-relaxed focus:outline-none focus:ring-2 transition ${t.inputBg}`}
+                  className="w-full resize-y rounded-xl px-4 py-3 text-base leading-relaxed focus:outline-none focus:ring-2 transition bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--page-text)] placeholder-[var(--placeholder)] focus:ring-[var(--ring)]"
                 />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-[var(--label)]">Highlight Pacing</span>
+                <div className="flex flex-wrap gap-2">
+                  {PACING_MODES.map((pm) => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => changePacingMode(pm.id)}
+                      className={`px-3.5 py-2 rounded-lg text-sm font-medium border transition ${
+                        pacingMode === pm.id
+                          ? "bg-[var(--accent-secondary)] text-[var(--preset-active-text)] border-[var(--accent-secondary)]"
+                          : "bg-transparent text-[var(--preset-text)] border-[var(--preset-border)] hover:border-[var(--accent-secondary)] hover:text-[var(--accent-secondary)]"
+                      }`}
+                    >
+                      {pm.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-[var(--subtitle)]">
+                  Even splits time equally per word. By Character and By Syllable give longer
+                  words more highlight time. Syllable counts are estimated with a standard
+                  English heuristic, not a dictionary.
+                </p>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-end gap-4">
                 <div className="flex flex-col gap-2 w-full sm:w-52">
-                  <label htmlFor="total-time" className={`text-sm font-medium ${t.label}`}>
+                  <label htmlFor="total-time" className="text-sm font-medium text-[var(--label)]">
                     Total Time (seconds)
                   </label>
                   <input
@@ -267,44 +358,48 @@
                     step="0.1"
                     value={totalSeconds}
                     onChange={onTimeChange}
-                    className={`w-full rounded-xl px-4 py-3 text-base mono-num focus:outline-none focus:ring-2 transition ${t.inputBg}`}
+                    className="w-full rounded-xl px-4 py-3 text-base mono-num focus:outline-none focus:ring-2 transition bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--page-text)] focus:ring-[var(--ring)]"
                   />
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  {PRESETS.map((preset) => (
+                  {PRESET_LABELS.map((label) => (
                     <button
-                      key={preset.label}
+                      key={label}
                       type="button"
-                      onClick={() => applyPreset(preset)}
+                      onClick={() => applyPreset(label)}
                       className={`px-3.5 py-2 rounded-lg text-sm font-medium border transition ${
-                        activePreset === preset.label ? t.presetActive : t.presetInactive
+                        activePreset === label
+                          ? "bg-[var(--accent-secondary)] text-[var(--preset-active-text)] border-[var(--accent-secondary)]"
+                          : "bg-transparent text-[var(--preset-text)] border-[var(--preset-border)] hover:border-[var(--accent-secondary)] hover:text-[var(--accent-secondary)]"
                       }`}
                     >
-                      {preset.label}
-                      <span className="ml-1 text-xs opacity-80">{preset.seconds}s</span>
+                      {label}
+                      <span className="ml-1 text-xs opacity-80">{presetSecondsMap[label]}s</span>
                     </button>
                   ))}
                 </div>
               </div>
+              <p className="text-xs text-[var(--subtitle)] -mt-2">
+                Preset times scale with the length of your text, so "Impossible" stays genuinely
+                hard whether you paste a short phrase or a long one.
+              </p>
             </section>
 
             {/* Main display */}
-            <section className={`rounded-2xl p-6 sm:p-10 transition-colors duration-300 ${t.card}`}>
+            <section className="rounded-2xl p-6 sm:p-10 transition-colors duration-300 bg-[var(--card-bg)] border border-[var(--card-border)]">
               <div className="min-h-[9rem] flex items-center justify-center">
                 {wordCount === 0 ? (
-                  <p className={`text-lg ${t.emptyState}`}>Enter a tongue twister above to begin.</p>
+                  <p className="text-lg text-[var(--empty)]">Enter a tongue twister above to begin.</p>
                 ) : (
                   <p className="text-center leading-relaxed text-2xl sm:text-4xl font-semibold tracking-tight">
                     {words.map((word, i) => (
                       <span
                         key={i}
-                        className={`inline-block mx-1 my-1 px-1.5 py-0.5 rounded-md transition-colors duration-150 ${
+                        className={`inline-block mx-1 my-1 transition-colors duration-150 ${
                           i === activeIndex
-                            ? "bg-[#FFE14D] text-[#1A1600] word-active"
-                            : i < activeIndex
-                            ? t.spoken
-                            : t.unspoken
+                            ? "text-[var(--word-active)] font-bold word-active"
+                            : "text-[var(--word-default)]"
                         }`}
                       >
                         {word}
@@ -316,9 +411,9 @@
 
               {/* Progress bar */}
               <div className="mt-8">
-                <div className={`h-2.5 w-full rounded-full overflow-hidden ${t.progressTrack}`}>
+                <div className="h-2.5 w-full rounded-full overflow-hidden bg-[var(--progress-track)] border border-[var(--card-border)]">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#FF8A5B] to-[#FFE14D] transition-[width] duration-150 ease-linear"
+                    className="h-full rounded-full bg-gradient-to-r from-[var(--accent-secondary)] to-[#FFE14D] transition-[width] duration-150 ease-linear"
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
@@ -338,7 +433,7 @@
                   type="button"
                   onClick={handlePause}
                   disabled={!canPause}
-                  className={`px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition ${t.secondaryBtn}`}
+                  className="px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition bg-[var(--secondary-bg)] text-[var(--page-text)] border border-[var(--secondary-border)] hover:border-[var(--ring)]"
                 >
                   Pause
                 </button>
@@ -346,14 +441,14 @@
                   type="button"
                   onClick={handleResume}
                   disabled={!canResume}
-                  className={`px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition ${t.secondaryBtn}`}
+                  className="px-5 py-2.5 rounded-xl font-semibold disabled:opacity-35 disabled:cursor-not-allowed active:scale-[0.97] transition bg-[var(--secondary-bg)] text-[var(--page-text)] border border-[var(--secondary-border)] hover:border-[var(--ring)]"
                 >
                   Resume
                 </button>
                 <button
                   type="button"
                   onClick={handleReset}
-                  className={`px-5 py-2.5 rounded-xl font-semibold active:scale-[0.97] transition ${t.ghostBtn}`}
+                  className="px-5 py-2.5 rounded-xl font-semibold active:scale-[0.97] transition bg-transparent text-[var(--label)] border border-[var(--preset-border)] hover:border-[var(--accent-secondary)] hover:text-[var(--accent-secondary)]"
                 >
                   Reset
                 </button>
@@ -362,37 +457,35 @@
 
             {/* Stats */}
             <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Stat label="Total Time" value={`${safeTotal.toFixed(1)}s`} t={t} />
-              <Stat label="Word Count" value={wordCount} t={t} />
-              <Stat label="Ms Per Word" value={wordCount > 0 ? `${msPerWord.toFixed(0)}ms` : "—"} t={t} />
+              <Stat label="Total Time" value={`${safeTotal.toFixed(1)}s`} />
+              <Stat label="Word Count" value={wordCount} />
+              <Stat
+                label={`Avg Ms / ${unitLabel}`}
+                value={unitCounts[pacingMode] > 0 ? `${avgMsPerUnit.toFixed(0)}ms` : "—"}
+              />
               <Stat
                 label="Progress"
                 value={wordCount > 0 ? `${progressCount} / ${wordCount}` : "0 / 0"}
-                t={t}
               />
             </section>
 
-            <footer className={`text-center text-xs pt-2 ${t.footer}`}>
-              Status:{" "}
-              <span className={`capitalize ${t.label}`}>
-                {status === "idle" ? "ready" : status}
-              </span>
+            <footer className="text-center text-xs pt-2 text-[var(--footer)]">
+              Status: <span className="capitalize text-[var(--label)]">{status === "idle" ? "ready" : status}</span>
             </footer>
           </div>
         </div>
       );
     }
 
-    function Stat({ label, value, t }) {
+    function Stat({ label, value }) {
       return (
-        <div className={`rounded-xl px-4 py-3.5 flex flex-col gap-1 transition-colors duration-300 ${t.card}`}>
-          <span className={`text-[11px] tracking-wide ${t.statLabel}`}>{label}</span>
-          <span className={`mono-num text-lg font-semibold ${t.label}`}>{value}</span>
+        <div className="rounded-xl px-4 py-3.5 flex flex-col gap-1 transition-colors duration-300 bg-[var(--card-bg)] border border-[var(--card-border)]">
+          <span className="text-[11px] tracking-wide text-[var(--stat-label)]">{label}</span>
+          <span className="mono-num text-lg font-semibold text-[var(--label)]">{value}</span>
         </div>
       );
     }
 
-    // Render into the HTML root
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<TongueTwisterPaceTrainer />);
   </script>
